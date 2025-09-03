@@ -4,8 +4,8 @@ from scipy.interpolate import Rbf
 import mediapipe as mp
 
 mp_pose = mp.solutions.pose
+mp_face_mesh = mp.solutions.face_mesh
 
-# Bölge indeksleri (MediaPipe 33 noktası)
 REGIONS = {
     "head": [0, 1, 2, 3, 4, 5, 6],
     "neck": [11, 12],
@@ -22,22 +22,31 @@ REGIONS = {
 }
 
 def get_pose_landmarks(image):
-    """MediaPipe Pose ile 33 vücut noktası al"""
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     with mp_pose.Pose(static_image_mode=True, min_detection_confidence=0.5) as pose:
         results = pose.process(image_rgb)
         if not results.pose_landmarks:
             return None
-        landmarks = results.pose_landmarks.landmark
         h, w, _ = image.shape
-        points = [(int(lm.x * w), int(lm.y * h)) for lm in landmarks]
+        points = [(int(lm.x * w), int(lm.y * h)) for lm in results.pose_landmarks.landmark]
+        return points
+
+def get_face_landmarks(image):
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    with mp_face_mesh.FaceMesh(
+        static_image_mode=True,
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5
+    ) as face_mesh:
+        results = face_mesh.process(image_rgb)
+        if not results.multi_face_landmarks:
+            return []
+        h, w, _ = image.shape
+        points = [(int(lm.x * w), int(lm.y * h)) for lm in results.multi_face_landmarks[0].landmark]
         return points
 
 def deform_region(image, points, scale_dict):
-    """
-    Her hassas bölge için scale uygular.
-    scale_dict örn: {"chest":0.8, "waist":0.75, "thighs":0.85}
-    """
     if points is None:
         print("Vücut noktaları bulunamadı!")
         return image
@@ -46,25 +55,42 @@ def deform_region(image, points, scale_dict):
     src = np.array(points, dtype=np.float32)
     dst = src.copy()
 
-    # Her bölge için scale uygula
+    mask = np.zeros((h, w), dtype=np.uint8)
+
     for region, indices in REGIONS.items():
         if region in scale_dict:
             region_points = src[indices]
-            center_x = np.mean(region_points[:,0])
-            center_y = np.mean(region_points[:,1])
-            dst[indices] = (region_points - [center_x, center_y]) * scale_dict[region] + [center_x, center_y]
+            center = np.mean(region_points, axis=0)
+            dst[indices] = (region_points - center) * scale_dict[region] + center
 
-    # Grid oluştur
+            # Bölge maskesi oluştur (konveks hull ile)
+            hull = cv2.convexHull(region_points.astype(np.int32))
+            cv2.drawContours(mask, [hull], -1, 255, -1)
+
+    # Tüm vücut noktalarını ve maskeyi kullanarak deformasyon uygula
+    src_unique, indices = np.unique(src, axis=0, return_index=True)
+    dst_unique = dst[indices]
+
     grid_x, grid_y = np.meshgrid(np.arange(w), np.arange(h))
     grid_x_flat = grid_x.flatten()
     grid_y_flat = grid_y.flatten()
 
-    # TPS benzeri RBF
-    rbf_x = Rbf(src[:,0], src[:,1], dst[:,0], function='thin_plate')
-    rbf_y = Rbf(src[:,0], src[:,1], dst[:,1], function='thin_plate')
+    rbf_x = Rbf(src_unique[:, 0], src_unique[:, 1], dst_unique[:, 0], function='multiquadric', epsilon=2)
+    rbf_y = Rbf(src_unique[:, 0], src_unique[:, 1], dst_unique[:, 1], function='multiquadric', epsilon=2)
 
-    map_x = np.clip(rbf_x(grid_x_flat, grid_y_flat).reshape((h,w)), 0, w-1).astype(np.float32)
-    map_y = np.clip(rbf_y(grid_x_flat, grid_y_flat).reshape((h,w)), 0, h-1).astype(np.float32)
+    map_x = rbf_x(grid_x_flat, grid_y_flat).reshape((h, w))
+    map_y = rbf_y(grid_x_flat, grid_y_flat).reshape((h, w))
 
-    output = cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-    return output
+    map_x = np.clip(map_x, 0, w-1).astype(np.float32)
+    map_y = np.clip(map_y, 0, h-1).astype(np.float32)
+
+    # Sadece maske içini deforme et, dışı orijinal kalsın
+    mask_blur = cv2.GaussianBlur(mask, (21, 21), 0)
+    mask_norm = mask_blur.astype(np.float32) / 255.0
+    output = cv2.remap(image, map_x, map_y, interpolation=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REFLECT_101)
+    blended = (output * mask_norm[..., None] + image * (1 - mask_norm[..., None])).astype(np.uint8)
+
+    # Geçişleri yumuşat
+    blended = cv2.GaussianBlur(blended, (3, 3), 0)
+
+    return blended
