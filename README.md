@@ -1,4 +1,6 @@
-# Vücut Segmentasyonu Web
+# Vücut Segmentasyonu
+
+Kullanış ve izleme açısından daha modüler bir halde olması ve sizlernde kolaylıkla test edebilmeniz için projemi basıt bir web arayüzüne entegre etmek istedim.
 
 Bir fotoğraf üzerindeki kişiyi odaklayıp arka planı bulanıklaştırır, MediaPipe Pose noktalarına dayalı bölgesel ölçekleme ile vücut şekillendirme (zayıf/kilolu) uygular. Bu repo, FastAPI tabanlı basit bir web arayüzü (yükle ve +/-) içerir.
 
@@ -21,7 +23,7 @@ python -m pip install -r requirements.txt
 ```bash
 python server.py
 ```
-Tarayıcıdan `http://localhost:8001` adresine gidin.
+Tarayıcıdan `http://localhost:8000` adresine gidin.
 
 ## Kullanım
 1. Görsel yükleyin.
@@ -50,3 +52,8 @@ Tarayıcıdan `http://localhost:8001` adresine gidin.
 - İlk isteklerde model yüklemeleri nedeniyle gecikme olabilir. Modeller `ModelRegistry` ile bir kez yüklenir.
 - Sonuçlar, görüntü çözünürlüğüne ve poz algılamanın doğruluğuna bağlıdır.
 - Bu demo, bellek içi `ImageStore` kullanır. Üretimde kalıcı depolama ve kuyruklama önerilir. 
+
+##Yaşadığım Sorunlar ve Çözümlerim
+- Görselde birden fazla kişi olduğunda odaklanma konusunda zorlanıyordu. Bu sebeple YOLO ile en öndeki kişiye odaklanmasını sağladım.
+- Kişi manipülasyonu yaparken zayıf veya kilolu haline ulaşmak istediğimde kişinin yüzü de buna göre değişiyor ve orjinalliğini kaybediyordu. Bu sebeple OpenCV ile yüz noktalarını bulup bu noltaların sabit kalmasını sağladım.
+- Manipülasyon sırasında global manipülasyon yaptığımda büyük ölçekli görsellerde yuvarlak girdaplar oluşuyordu. Bunun için global bir manipülasyonu tercih ettim.

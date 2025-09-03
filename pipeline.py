@@ -153,6 +153,65 @@ NONLINEAR_GAMMA: float = 1.4
 GLOBAL_GAIN: float = 1.6
 
 
+def _detect_main_person_bbox(image_bgr: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+	model = ModelRegistry.get_yolo()
+	results = model(image_bgr)[0]
+	candidates: list[Tuple[int, Tuple[int, int, int, int]]] = []
+	for box in results.boxes:
+		cls = int(box.cls[0])
+		if cls == 0:
+			x1, y1, x2, y2 = map(int, box.xyxy[0])
+			area = (x2 - x1) * (y2 - y1)
+			candidates.append((area, (x1, y1, x2, y2)))
+	if not candidates:
+		return None
+	candidates.sort(reverse=True, key=lambda x: x[0])
+	return candidates[0][1]
+
+
+def get_pose_landmarks_robust(image_bgr: np.ndarray) -> Optional[list[Tuple[int, int]]]:
+	"""
+	Improve landmark detection by:
+	- Cropping to YOLO person ROI with padding
+	- Upscaling to a target height for higher detail
+	- Using MediaPipe Pose with higher model complexity and thresholds
+	- Fallback to full image if ROI fails
+	"""
+	bbox = _detect_main_person_bbox(image_bgr)
+	import mediapipe as mp
+	mp_pose = mp.solutions.pose
+	if bbox is not None:
+		x1, y1, x2, y2 = bbox
+		h, w, _ = image_bgr.shape
+		pad = int(0.1 * max(x2 - x1, y2 - y1))
+		x1p = max(0, x1 - pad)
+		y1p = max(0, y1 - pad)
+		x2p = min(w, x2 + pad)
+		y2p = min(h, y2 + pad)
+		crop = image_bgr[y1p:y2p, x1p:x2p]
+		# upscale crop for better keypoint quality
+		target_h = 960
+		scale = max(1.0, target_h / max(1, crop.shape[0]))
+		crop_up = cv2.resize(crop, (int(crop.shape[1] * scale), int(crop.shape[0] * scale)), interpolation=cv2.INTER_CUBIC)
+		crop_rgb = cv2.cvtColor(crop_up, cv2.COLOR_BGR2RGB)
+		with mp_pose.Pose(static_image_mode=True, model_complexity=2, enable_segmentation=False, min_detection_confidence=0.6) as pose:
+			res = pose.process(crop_rgb)
+			if res.pose_landmarks:
+				h_up, w_up, _ = crop_up.shape
+				points_up = [(int(lm.x * w_up), int(lm.y * h_up)) for lm in res.pose_landmarks.landmark]
+				# map back to original image coords
+				points = [(px / scale + x1p, py / scale + y1p) for (px, py) in points_up]
+				return [(int(px), int(py)) for (px, py) in points]
+	# fallback: run on full image with stronger settings
+	image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+	with mp_pose.Pose(static_image_mode=True, model_complexity=2, enable_segmentation=False, min_detection_confidence=0.6) as pose:
+		res = pose.process(image_rgb)
+		if not res.pose_landmarks:
+			return None
+		h, w, _ = image_bgr.shape
+		return [(int(lm.x * w), int(lm.y * h)) for lm in res.pose_landmarks.landmark]
+
+
 def compute_scale_dict_from_level(weight_level: int, max_level: int = MAX_LEVEL) -> Dict[str, float]:
 	"""
 	weight_level in [-max_level, max_level]. 0 means no change.
@@ -198,7 +257,11 @@ def compute_scale_dict_from_level(weight_level: int, max_level: int = MAX_LEVEL)
 
 def process_image_with_weight(image_bgr: np.ndarray, weight_level: int) -> np.ndarray:
 	focused = focus_main_person_with_segmentation_bgr(image_bgr)
-	points = get_pose_landmarks(focused)
+	# Use robust landmark detection for better body point accuracy
+	points = get_pose_landmarks_robust(focused)
+	if points is None:
+		# fallback to the simpler method if robust fails
+		points = get_pose_landmarks(focused)
 	scales = compute_scale_dict_from_level(weight_level)
 	result = deform_region(focused, points, scales)
 	return result

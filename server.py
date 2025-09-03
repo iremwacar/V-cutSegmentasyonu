@@ -72,4 +72,4 @@ async def process(image_id: str, level: int = 0):
 
 
 if __name__ == "__main__":
-	uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=False) 
+	uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False) 
