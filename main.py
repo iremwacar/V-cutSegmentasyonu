@@ -16,15 +16,15 @@ points = get_pose_landmarks(focused_image)
 # --- 4. Hassas bölge bazlı scale ---
 # scale<1 zayıf, scale>1 kilolu
 slim_scales = {
-    "head":1.0, "neck":0.95, "shoulders":0.9, "chest":0.8, "waist":0.75, "hips":0.8,
-    "upper_arms":0.85, "forearms":0.85, "hands":0.9,
-    "thighs":0.8, "shins":0.85, "feet":0.95
+    "head":1.0, "neck":0.90, "shoulders":0.85, "chest":1.2, "waist":0.70, "hips":0.75,
+    "upper_arms":0.80, "forearms":0.80, "hands":0.85,
+    "thighs":0.75, "shins":0.80, "feet":0.90
 }
 
 fat_scales  = {
-    "head":1.0, "neck":1.05, "shoulders":1.1, "chest":1.2, "waist":1.25, "hips":1.2,
-    "upper_arms":1.15, "forearms":1.1, "hands":1.05,
-    "thighs":1.15, "shins":1.1, "feet":1.05
+    "head":1.0, "neck":1.10, "shoulders":1.15, "chest":0.8, "waist":1.30, "hips":1.25,
+    "upper_arms":1.20, "forearms":1.15, "hands":1.1,
+    "thighs":1.2, "shins":1.15, "feet":1.1
 }
 
 # --- 5. Deformasyon uygula ---

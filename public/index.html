@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Vücut Segmentasyonu</title>
+	<link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+	<header class="topbar">
+		<div class="brand"><div class="logo"></div>Vücut Segmentasyonu</div>
+		<nav class="actions">
+			<a href="https://ultralytics.com" target="_blank" rel="noreferrer">Docs</a>
+		</nav>
+	</header>
+	<main class="container">
+		<section class="panel upload">
+			<h2>Görsel Yükle</h2>
+			<input id="fileInput" type="file" accept="image/*" />
+			<label class="file-input" for="fileInput">
+				<span>Dosya Seç</span>
+			</label>
+			<span id="status" class="badge">Hazır</span>
+			<p>JPG veya PNG dosyası yükleyin.</p>
+		</section>
+		<section class="panel controls">
+			<h2>Ağırlık Kontrolü</h2>
+			<div class="control-row">
+				<button id="decrease" class="btn">-</button>
+				<div class="level">Seviye: <strong id="level">0</strong></div>
+				<button id="increase" class="btn">+</button>
+				<button id="reset" class="btn btn-primary">Sıfırla</button>
+			</div>
+			<p class="hint">Aralık: -20 (zayıf) ... 0 ... +20 (kilolu)</p>
+		</section>
+		<section class="panel preview">
+			<h2>Önizleme</h2>
+			<div class="spinner" id="spinner"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+			<img id="preview" alt="Önizleme" />
+		</section>
+	</main>
+	<footer class="footer">© 2025 Vücut Segmentasyonu</footer>
+	<script src="/app.js"></script>
+</body>
+</html> 

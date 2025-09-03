@@ -87,7 +87,7 @@ def focus_main_person_with_segmentation_bgr(image_bgr: np.ndarray, blur_strength
 
 
 SLIM_SCALES: Dict[str, float] = {
-	"head": 1.0, "neck": 0.95, "shoulders": 0.9, "chest": 0.8, "waist": 0.75, "hips": 0.8,
+	"head": 1.0, "neck": 0.95, "shoulders": 0.9, "chest": 0.9, "waist": 0.75, "hips": 0.8,
 	"upper_arms": 0.85, "forearms": 0.85, "hands": 0.9,
 	"thighs": 0.8, "shins": 0.85, "feet": 0.95
 }
@@ -100,22 +100,99 @@ FAT_SCALES: Dict[str, float] = {
 
 ALL_REGIONS = sorted(set(SLIM_SCALES.keys()) | set(FAT_SCALES.keys()))
 
+# Region response weights let us bias which areas change more for slimming/bulking
+SLIM_RESPONSE_WEIGHT: Dict[str, float] = {
+	"head": 0.0,
+	"neck": 0.3,
+	"shoulders": 0.6,
+	"chest": 0.25,
+	"waist": 1.0,
+	"hips": 0.85,
+	"upper_arms": 0.6,
+	"forearms": 0.4,
+	"hands": 0.2,
+	"thighs": 0.8,
+	"shins": 0.5,
+	"feet": 0.1,
+}
 
-def compute_scale_dict_from_level(weight_level: int, max_level: int = 10) -> Dict[str, float]:
+FAT_RESPONSE_WEIGHT: Dict[str, float] = {
+	"head": 0.0,
+	"neck": 0.5,
+	"shoulders": 0.8,
+	"chest": 0.8,
+	"waist": 1.0,
+	"hips": 0.9,
+	"upper_arms": 0.8,
+	"forearms": 0.6,
+	"hands": 0.3,
+	"thighs": 0.9,
+	"shins": 0.6,
+	"feet": 0.2,
+}
+
+# Amplify specific regions to make the transformation more noticeable
+SLIM_REGION_AMPLIFY: Dict[str, float] = {
+	"waist": 1.4,
+	"hips": 1.2,
+	"thighs": 1.2,
+	"shoulders": 1.1,
+}
+
+FAT_REGION_AMPLIFY: Dict[str, float] = {
+	"chest": 1.25,
+	"waist": 1.25,
+	"hips": 1.25,
+	"thighs": 1.2,
+	"upper_arms": 1.15,
+}
+
+# Global tuning for intensity and curve
+MAX_LEVEL: int = 20
+NONLINEAR_GAMMA: float = 1.4
+GLOBAL_GAIN: float = 1.6
+
+
+def compute_scale_dict_from_level(weight_level: int, max_level: int = MAX_LEVEL) -> Dict[str, float]:
 	"""
 	weight_level in [-max_level, max_level]. 0 means no change.
 	Negative goes towards SLIM_SCALES, positive towards FAT_SCALES.
-	We interpolate from 1.0 to the target scales using |level|/max_level.
+	We blend non-linearly and apply global and region-specific amplification for a more noticeable effect.
 	"""
 	if weight_level == 0:
 		return {region: 1.0 for region in ALL_REGIONS}
 
 	alpha = min(max(abs(weight_level) / float(max_level), 0.0), 1.0)
-	target = SLIM_SCALES if weight_level < 0 else FAT_SCALES
+	# Non-linear easing for stronger perceived change
+	alpha = 1.0 - (1.0 - alpha) ** NONLINEAR_GAMMA
+	# Global gain
+	alpha = min(alpha * GLOBAL_GAIN, 1.0)
+
+	if weight_level < 0:
+		target = SLIM_SCALES
+		weights = SLIM_RESPONSE_WEIGHT
+		amplify = SLIM_REGION_AMPLIFY
+	else:
+		target = FAT_SCALES
+		weights = FAT_RESPONSE_WEIGHT
+		amplify = FAT_REGION_AMPLIFY
+
 	scales: Dict[str, float] = {}
 	for region in ALL_REGIONS:
 		target_scale = target.get(region, 1.0)
-		scales[region] = 1.0 + (target_scale - 1.0) * alpha
+		w = weights.get(region, 1.0)
+		amp = amplify.get(region, 1.0)
+		region_alpha = max(0.0, min(1.0, alpha * w * amp))
+		scales[region] = 1.0 + (target_scale - 1.0) * region_alpha
+
+	# Guardrails: when slimming, never let chest scale exceed shoulders/waist average
+	if weight_level < 0:
+		ch = scales.get("chest", 1.0)
+		sh = scales.get("shoulders", 1.0)
+		wa = scales.get("waist", 1.0)
+		allowed = (sh + wa) / 2.0
+		if ch > allowed:
+			scales["chest"] = allowed
 	return scales
 
 
